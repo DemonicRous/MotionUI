@@ -21,3 +21,46 @@ processResources {
 jar { manifest { attributes('FMLCorePlugin': 'com.demonicrous.motionui.core.MotionUILoadingPlugin', 'FMLCorePluginContainsFMLMod': 'true', 'Implementation-Title': 'MotionUI', 'Implementation-Version': project.version, 'Implementation-Vendor': 'DemonicRous') } }
 task sourcesJar(type: Jar, dependsOn: classes) { classifier = 'sources'; from sourceSets.main.allSource }
 artifacts { archives sourcesJar }
+
+def productionJar = file("${buildDir}/libs/${archivesBaseName}-${version}-release.jar")
+
+task packageProductionJar(dependsOn: reobfJar) {
+    group = 'build'
+    description = 'Copies the reobfuscated artifact to a filename that runClient cannot overwrite.'
+    outputs.file productionJar
+    doLast {
+        copy {
+            from jar.archivePath
+            into productionJar.parentFile
+            rename { productionJar.name }
+        }
+    }
+}
+
+task verifyProductionJar(dependsOn: packageProductionJar) {
+    group = 'verification'
+    description = 'Rejects a release JAR that still contains development (MCP) method names.'
+    doLast {
+        def output = productionJar
+        def archive = new java.util.zip.ZipFile(output)
+        try {
+            def entry = archive.getEntry('com/demonicrous/motionui/client/MotionUIClientEvents.class')
+            if (entry == null) {
+                throw new GradleException("MotionUIClientEvents.class is missing from ${output}")
+            }
+            def constants = new String(archive.getInputStream(entry).bytes, 'ISO-8859-1')
+            def developmentNames = ['getKeyCode', 'getMinecraft', 'displayGuiScreen']
+            def leaked = developmentNames.findAll { constants.contains(it) }
+            if (!leaked.empty) {
+                throw new GradleException("Release JAR is not reobfuscated; found MCP names: ${leaked.join(', ')}")
+            }
+            if (!constants.contains('func_151463_i')) {
+                throw new GradleException('Release JAR does not contain the expected SRG KeyBinding method name')
+            }
+        } finally {
+            archive.close()
+        }
+    }
+}
+
+build.dependsOn verifyProductionJar

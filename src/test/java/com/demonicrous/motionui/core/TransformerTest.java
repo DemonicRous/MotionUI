@@ -15,9 +15,9 @@ public final class TransformerTest {
         assertEquals(0,calls);assertEquals(1,pairs);
     }
     @Test public void hotbarPatchOnlyAddsXHelper() throws Exception {
-        String n="net.minecraft.client.gui.GuiIngame";byte[] out=new HotbarSelectorTransformer().transform(n,n,bytes("/net/minecraft/client/gui/GuiIngame.class"));int adjust=0,defer=0;ClassNode node=new ClassNode();new ClassReader(out).accept(node,0);
-        for(MethodNode m:node.methods)for(AbstractInsnNode i:m.instructions.toArray())if(i instanceof MethodInsnNode){MethodInsnNode c=(MethodInsnNode)i;if("com/demonicrous/motionui/client/HotbarAnimationController".equals(c.owner)){if("adjustSelectorX".equals(c.name))adjust++;if("deferSelector".equals(c.name))defer++;}}
-        assertEquals(1,adjust);assertEquals(0,defer);
+        String n="net.minecraft.client.gui.GuiIngame";byte[] out=new HotbarSelectorTransformer().transform(n,n,bytes("/net/minecraft/client/gui/GuiIngame.class"));int adjust=0,begin=0,end=0,defer=0;ClassNode node=new ClassNode();new ClassReader(out).accept(node,0);
+        for(MethodNode m:node.methods)for(AbstractInsnNode i:m.instructions.toArray())if(i instanceof MethodInsnNode){MethodInsnNode c=(MethodInsnNode)i;if("com/demonicrous/motionui/client/HotbarAnimationController".equals(c.owner)){if("adjustSelectorX".equals(c.name))adjust++;if("beginSubpixelRender".equals(c.name))begin++;if("endSubpixelRender".equals(c.name))end++;if("deferSelector".equals(c.name))defer++;}}
+        assertEquals(0,adjust);assertEquals(0,begin);assertEquals(0,end);assertEquals(1,defer);
     }
     private static byte[] bytes(String path)throws IOException{InputStream in=ScaledResolution.class.getResourceAsStream(path);assertNotNull(in);try{ByteArrayOutputStream o=new ByteArrayOutputStream();byte[] b=new byte[8192];for(int r;(r=in.read(b))>=0;)o.write(b,0,r);return o.toByteArray();}finally{in.close();}}
 }
