@@ -11,11 +11,11 @@
 - License: MIT
 - Required dependency: Forge 14.23.5.2847 or newer
 - Source: https://github.com/DemonicRous/MotionUI
-- Primary artifact: `build/libs/MotionUI-<version>.jar`
+- Primary artifact: `build/libs/MotionUI-<version>-release.jar`
 
 ## CurseForge
 
-Create the project later under Minecraft Mods, select MIT, Forge, client-side, and Minecraft 1.12.2. Use the short and long descriptions from the README. Upload the reobfuscated primary JAR, not the sources JAR. Mark 1.12.2 and Forge explicitly.
+Create the project under Minecraft Mods, select MIT, Forge, client-side, and Minecraft 1.12.2. Use the short and long descriptions from the README. Upload the reobfuscated `-release.jar`, not the sources or unqualified development JAR. Mark 1.12.2 and Forge explicitly. Use `docs/media/motionui-logo.png` as the project avatar.
 
 ## Modrinth
 
