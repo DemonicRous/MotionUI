@@ -1,0 +1,9 @@
+key.motionui.catalog=Open MotionUI GUI Catalog
+key.categories.motionui=MotionUI
+motionui.catalog.title=MotionUI GUI Catalog
+motionui.catalog.search=Search: %s
+motionui.catalog.filter=Mod: %s
+motionui.catalog.empty=No GUI classes match this filter
+motionui.policy.default=DEFAULT
+motionui.policy.enabled=ENABLED
+motionui.policy.disabled=DISABLED

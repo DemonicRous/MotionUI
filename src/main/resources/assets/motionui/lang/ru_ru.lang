@@ -1,0 +1,9 @@
+key.motionui.catalog=Открыть каталог GUI MotionUI
+key.categories.motionui=MotionUI
+motionui.catalog.title=Каталог GUI MotionUI
+motionui.catalog.search=Поиск: %s
+motionui.catalog.filter=Мод: %s
+motionui.catalog.empty=Нет GUI, подходящих под фильтр
+motionui.policy.default=ПО УМОЛЧАНИЮ
+motionui.policy.enabled=ВКЛЮЧЕНО
+motionui.policy.disabled=ОТКЛЮЧЕНО
