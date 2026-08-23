@@ -10,6 +10,8 @@ import net.minecraft.client.renderer.RenderHelper;
 /** Vanilla-style tooltip for explanatory text, without the item-name line gap. */
 final class TextTooltip extends Gui {
     private static final TextTooltip INSTANCE = new TextTooltip();
+    private static final int PADDING_X = 7;
+    private static final int PADDING_Y = 6;
 
     private TextTooltip() {}
 
@@ -30,10 +32,12 @@ final class TextTooltip extends Gui {
         int textHeight = lines.size() * 10 - 1;
         int left = mouseX + 12;
         int top = mouseY - 12;
-        if (left + textWidth + 4 > screenWidth) left = mouseX - 16 - textWidth;
-        if (left < 4) left = 4;
-        if (top + textHeight + 8 > screenHeight) top = screenHeight - textHeight - 8;
-        if (top < 4) top = 4;
+        if (left + textWidth + PADDING_X + 4 > screenWidth)
+            left = mouseX - 12 - textWidth - PADDING_X * 2;
+        if (left - PADDING_X < 4) left = 4 + PADDING_X;
+        if (top + textHeight + PADDING_Y + 4 > screenHeight)
+            top = screenHeight - textHeight - PADDING_Y - 4;
+        if (top - PADDING_Y < 4) top = 4 + PADDING_Y;
 
         GlStateManager.disableRescaleNormal();
         RenderHelper.disableStandardItemLighting();
@@ -44,15 +48,14 @@ final class TextTooltip extends Gui {
             int background = 0xF0100010;
             int borderTop = 0x505000FF;
             int borderBottom = 0x5028007F;
-            drawGradientRect(left - 3, top - 4, left + textWidth + 3, top - 3, background, background);
-            drawGradientRect(left - 3, top + textHeight + 3, left + textWidth + 3, top + textHeight + 4, background, background);
-            drawGradientRect(left - 3, top - 3, left + textWidth + 3, top + textHeight + 3, background, background);
-            drawGradientRect(left - 4, top - 3, left - 3, top + textHeight + 3, background, background);
-            drawGradientRect(left + textWidth + 3, top - 3, left + textWidth + 4, top + textHeight + 3, background, background);
-            drawGradientRect(left - 3, top - 2, left - 2, top + textHeight + 2, borderTop, borderBottom);
-            drawGradientRect(left + textWidth + 2, top - 2, left + textWidth + 3, top + textHeight + 2, borderTop, borderBottom);
-            drawGradientRect(left - 3, top - 3, left + textWidth + 3, top - 2, borderTop, borderTop);
-            drawGradientRect(left - 3, top + textHeight + 2, left + textWidth + 3, top + textHeight + 3, borderBottom, borderBottom);
+            int boxLeft = left - PADDING_X, boxRight = left + textWidth + PADDING_X;
+            int boxTop = top - PADDING_Y, boxBottom = top + textHeight + PADDING_Y;
+            drawGradientRect(boxLeft + 1, boxTop, boxRight - 1, boxBottom, background, background);
+            drawGradientRect(boxLeft, boxTop + 1, boxRight, boxBottom - 1, background, background);
+            drawGradientRect(boxLeft + 1, boxTop + 1, boxLeft + 2, boxBottom - 1, borderTop, borderBottom);
+            drawGradientRect(boxRight - 2, boxTop + 1, boxRight - 1, boxBottom - 1, borderTop, borderBottom);
+            drawGradientRect(boxLeft + 1, boxTop + 1, boxRight - 1, boxTop + 2, borderTop, borderTop);
+            drawGradientRect(boxLeft + 1, boxBottom - 2, boxRight - 1, boxBottom - 1, borderBottom, borderBottom);
             int y = top;
             for (String line : lines) {
                 font.drawStringWithShadow(line, left, y, 0xFFFFFFFF);

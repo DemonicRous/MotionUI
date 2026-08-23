@@ -57,6 +57,28 @@ public final class GuiMotionUISettings extends GuiScreen {
     }
 
     @Override
+    protected void mouseClicked(int mouseX, int mouseY, int mouseButton) throws IOException {
+        if (mouseButton == 1) {
+            if (over(profileButton, mouseX, mouseY)) {
+                MotionUIConfig.cycleProfile(-1);
+                refresh();
+                return;
+            }
+            if (over(closingModeButton, mouseX, mouseY)) {
+                MotionUIConfig.cycleClosingMode(-1);
+                refresh();
+                return;
+            }
+        }
+        super.mouseClicked(mouseX, mouseY, mouseButton);
+    }
+
+    private static boolean over(GuiButton button, int x, int y) {
+        return button != null && x >= button.x && x < button.x + button.width
+                && y >= button.y && y < button.y + button.height;
+    }
+
+    @Override
     protected void keyTyped(char typedChar, int keyCode) throws IOException {
         if (keyCode == 1) {
             mc.displayGuiScreen(parent);

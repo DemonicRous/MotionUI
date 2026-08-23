@@ -1,121 +1,26 @@
 package com.demonicrous.motionui.config;
-
-import java.io.File;
-import java.util.*;
-import net.minecraftforge.common.config.Configuration;
-
+import java.io.File;import java.util.*;import net.minecraftforge.common.config.Configuration;
 public final class MotionUIConfig {
-    public enum Policy { DEFAULT, ENABLED, DISABLED }
-    public enum ScreenEasing { EASE_OUT_CUBIC, EASE_OUT_QUINT, EASE_IN_OUT_CUBIC }
-    public enum ClosingMode { DISABLED, SIMPLIFIED, FULL }
-    public enum AnimationProfile {
-        OFF(false, false, false, 100, 160, 10, 120, 6),
-        SUBTLE(true, true, true, 80, 110, 4, 90, 3),
-        SMOOTH(true, true, true, 100, 160, 10, 120, 6),
-        EXPRESSIVE(true, true, true, 150, 240, 18, 180, 12),
-        CUSTOM(true, true, true, 100, 160, 10, 120, 6);
-
-        final boolean hotbar, containers, closing;
-        final int hotbarDuration, containerDuration, containerOffset, closingDuration, closingOffset;
-        AnimationProfile(boolean hotbar,boolean containers,boolean closing,int hotbarDuration,
-                int containerDuration,int containerOffset,int closingDuration,int closingOffset){
-            this.hotbar=hotbar;this.containers=containers;this.closing=closing;
-            this.hotbarDuration=hotbarDuration;this.containerDuration=containerDuration;
-            this.containerOffset=containerOffset;this.closingDuration=closingDuration;
-            this.closingOffset=closingOffset;
-        }
-    }
-    public static final class ScreenRule {
-        public final int duration,offset; public final ScreenEasing easing;
-        ScreenRule(int duration,int offset,ScreenEasing easing){this.duration=duration;this.offset=offset;this.easing=easing;}
-    }
-    private static Configuration config;
-    public static boolean hotbar=true, containers=true, closing=true;
-    public static int hotbarDuration=100, containerDuration=160, containerOffset=10;
-    public static int closingDuration=120, closingOffset=6;
-    private static AnimationProfile profile=AnimationProfile.SMOOTH;
-    private static ClosingMode closingMode=ClosingMode.SIMPLIFIED;
-    private static final Map<String,Policy> policies=new HashMap<String,Policy>();
-    private static final Map<String,ScreenRule> rules=new HashMap<String,ScreenRule>();
-    private MotionUIConfig() {}
-    public static synchronized void load(File file){
-        config=new Configuration(file); config.load();
-        hotbar=config.getBoolean("enabled","hotbar",true,"Animate the vanilla hotbar selector.");
-        hotbarDuration=config.getInt("durationMs","hotbar",100,40,400,"Animation duration.");
-        containers=config.getBoolean("enabled","screens.containers",true,"Animate GuiContainer opening.");
-        containerDuration=config.getInt("durationMs","screens.containers",160,0,400,"Animation duration.");
-        containerOffset=config.getInt("offsetPx","screens.containers",10,0,32,"Initial vertical offset.");
-        closing=config.getBoolean("enabled","screens.closing",true,"Animate GuiContainer closing without delaying the actual close.");
-        closingDuration=config.getInt("durationMs","screens.closing",120,0,300,"Snapshot fade duration.");
-        closingOffset=config.getInt("offsetPx","screens.closing",6,0,24,"Final vertical offset.");
-        if(config.hasKey("screens.closing","mode")){
-            closingMode=parseClosingMode(config.getString("mode","screens.closing","SIMPLIFIED","DISABLED, SIMPLIFIED or FULL."));
-        }else{
-            String legacyControl=config.getString("control","screens.closing","IMMEDIATE","Legacy setting; replaced by mode.");
-            closingMode=!closing?ClosingMode.DISABLED:"AFTER_ANIMATION".equals(legacyControl)?ClosingMode.FULL:ClosingMode.SIMPLIFIED;
-        }
-        closing=closingMode!=ClosingMode.DISABLED;
-        config.get("screens.closing","mode","SIMPLIFIED").set(closingMode.name());
-        config.get("screens.closing","enabled",true).set(closing);
-        boolean hadProfile=config.hasKey("animations","profile");
-        AnimationProfile requested=parseProfile(config.getString("profile","animations","SMOOTH","Global animation profile."));
-        AnimationProfile matching=matchingProfile();
-        profile=!hadProfile?matching:requested==AnimationProfile.CUSTOM||requested!=matching?AnimationProfile.CUSTOM:requested;
-        config.get("animations","profile","SMOOTH").set(profile.name());
-        policies.clear();
-        for(String entry:config.getStringList("classPolicies","compatibility",new String[0],"class=DEFAULT|ENABLED|DISABLED")){
-            int i=entry.lastIndexOf('='); if(i>0) try{policies.put(entry.substring(0,i),Policy.valueOf(entry.substring(i+1)));}catch(IllegalArgumentException ignored){}
-        }
-        rules.clear();
-        for(String entry:config.getStringList("classAnimations","compatibility",new String[0],"class|durationMs|offsetPx|easing")){
-            String[] p=entry.split("\\|",4);if(p.length==4)try{rules.put(p[0],new ScreenRule(clamp(Integer.parseInt(p[1]),0,600),clamp(Integer.parseInt(p[2]),0,48),ScreenEasing.valueOf(p[3])));}catch(RuntimeException ignored){}
-        }
-        if(config.hasChanged())config.save();
-    }
-    public static synchronized Policy policy(String name){Policy p=policies.get(name);return p==null?Policy.DEFAULT:p;}
-    public static synchronized AnimationProfile profile(){return profile;}
-    public static synchronized ClosingMode closingMode(){return closingMode;}
-    public static synchronized ClosingMode cycleClosingMode(){
-        closingMode=closingMode==ClosingMode.DISABLED?ClosingMode.SIMPLIFIED:
-                closingMode==ClosingMode.SIMPLIFIED?ClosingMode.FULL:ClosingMode.DISABLED;
-        closing=closingMode!=ClosingMode.DISABLED;
-        profile=matchingProfile();
-        config.get("animations","profile","SMOOTH").set(profile.name());
-        config.get("screens.closing","mode","SIMPLIFIED").set(closingMode.name());
-        config.get("screens.closing","enabled",true).set(closing);
-        config.save();return closingMode;
-    }
-    public static synchronized AnimationProfile cycleProfile(){
-        AnimationProfile next=profile==AnimationProfile.OFF?AnimationProfile.SUBTLE:
-                profile==AnimationProfile.SUBTLE?AnimationProfile.SMOOTH:
-                profile==AnimationProfile.SMOOTH?AnimationProfile.EXPRESSIVE:AnimationProfile.OFF;
-        setProfile(next);return next;
-    }
-    public static synchronized void setProfile(AnimationProfile next){
-        if(next==null||next==AnimationProfile.CUSTOM)return;
-        profile=next;apply(next);saveProfile();
-    }
-    public static synchronized boolean animationAllowed(Class<?> type){return animationAllowed(type.getName());}
-    public static synchronized boolean animationAllowed(String name){Policy p=policy(name);return p!=Policy.DISABLED;}
-    public static synchronized Policy cycle(String name){Policy next=policy(name)==Policy.DEFAULT?Policy.ENABLED:policy(name)==Policy.ENABLED?Policy.DISABLED:Policy.DEFAULT; if(next==Policy.DEFAULT)policies.remove(name);else policies.put(name,next);savePolicies();return next;}
-    public static synchronized ScreenRule rule(String name){ScreenRule r=rules.get(name);return r==null?new ScreenRule(containerDuration,containerOffset,ScreenEasing.EASE_OUT_CUBIC):r;}
-    public static synchronized boolean hasRule(String name){return rules.containsKey(name);}
-    public static synchronized void setRule(String name,int duration,int offset,ScreenEasing easing){rules.put(name,new ScreenRule(clamp(duration,0,600),clamp(offset,0,48),easing));saveRules();}
-    public static synchronized void resetRule(String name){rules.remove(name);policies.remove(name);saveRules();savePolicies();}
-    private static void savePolicies(){List<String> out=new ArrayList<String>();for(Map.Entry<String,Policy> e:policies.entrySet())out.add(e.getKey()+"="+e.getValue());Collections.sort(out);config.get("compatibility","classPolicies",new String[0]).set(out.toArray(new String[out.size()]));config.save();}
-    private static void saveRules(){List<String> out=new ArrayList<String>();for(Map.Entry<String,ScreenRule> e:rules.entrySet()){ScreenRule r=e.getValue();out.add(e.getKey()+"|"+r.duration+"|"+r.offset+"|"+r.easing.name());}Collections.sort(out);config.get("compatibility","classAnimations",new String[0]).set(out.toArray(new String[out.size()]));config.save();}
-    private static AnimationProfile parseProfile(String value){try{return AnimationProfile.valueOf(value);}catch(IllegalArgumentException ignored){return AnimationProfile.CUSTOM;}}
-    private static ClosingMode parseClosingMode(String value){try{return ClosingMode.valueOf(value);}catch(IllegalArgumentException ignored){return ClosingMode.SIMPLIFIED;}}
-    private static AnimationProfile matchingProfile(){for(AnimationProfile p:AnimationProfile.values())if(p!=AnimationProfile.CUSTOM&&matches(p))return p;return AnimationProfile.CUSTOM;}
-    private static boolean matches(AnimationProfile p){return hotbar==p.hotbar&&containers==p.containers&&closing==p.closing&&hotbarDuration==p.hotbarDuration&&containerDuration==p.containerDuration&&containerOffset==p.containerOffset&&closingDuration==p.closingDuration&&closingOffset==p.closingOffset;}
-    private static void apply(AnimationProfile p){hotbar=p.hotbar;containers=p.containers;closing=p.closing;if(!closing)closingMode=ClosingMode.DISABLED;else if(closingMode==ClosingMode.DISABLED)closingMode=ClosingMode.SIMPLIFIED;hotbarDuration=p.hotbarDuration;containerDuration=p.containerDuration;containerOffset=p.containerOffset;closingDuration=p.closingDuration;closingOffset=p.closingOffset;}
-    private static void saveProfile(){
-        config.get("animations","profile","SMOOTH").set(profile.name());
-        config.get("hotbar","enabled",true).set(hotbar);config.get("hotbar","durationMs",100).set(hotbarDuration);
-        config.get("screens.containers","enabled",true).set(containers);config.get("screens.containers","durationMs",160).set(containerDuration);config.get("screens.containers","offsetPx",10).set(containerOffset);
-        config.get("screens.closing","enabled",true).set(closing);config.get("screens.closing","durationMs",120).set(closingDuration);config.get("screens.closing","offsetPx",6).set(closingOffset);
-        config.get("screens.closing","mode","SIMPLIFIED").set(closingMode.name());
-        config.save();
-    }
-    private static int clamp(int value,int min,int max){return Math.max(min,Math.min(max,value));}
+ public enum Policy{DEFAULT,ENABLED,DISABLED} public enum ScreenEasing{EASE_OUT_CUBIC,EASE_OUT_QUINT,EASE_IN_OUT_CUBIC} public enum ClosingMode{DISABLED,SIMPLIFIED,FULL} public enum CatalogSort{MOD_NAME,NAME,CONFIGURED,OBSERVED}
+ public enum AnimationProfile{OFF(false,false,false,100,160,10,120,6),SUBTLE(true,true,true,80,110,4,90,3),SMOOTH(true,true,true,100,160,10,120,6),EXPRESSIVE(true,true,true,150,240,18,180,12),CUSTOM(true,true,true,100,160,10,120,6);final boolean h,c,x;final int hd,cd,co,xd,xo;AnimationProfile(boolean h,boolean c,boolean x,int hd,int cd,int co,int xd,int xo){this.h=h;this.c=c;this.x=x;this.hd=hd;this.cd=cd;this.co=co;this.xd=xd;this.xo=xo;}}
+ public static final class ScreenRule{public final int duration,offset;public final ScreenEasing easing;ScreenRule(int d,int o,ScreenEasing e){duration=d;offset=o;easing=e;}}
+ public static final class ClosingRule{public final ClosingMode mode;public final int duration,offset;public final ScreenEasing easing;ClosingRule(ClosingMode m,int d,int o,ScreenEasing e){mode=m;duration=d;offset=o;easing=e;}}
+ private static Configuration config;public static boolean hotbar=true,containers=true,closing=true;public static int hotbarDuration=100,containerDuration=160,containerOffset=10,closingDuration=120,closingOffset=6;private static AnimationProfile profile=AnimationProfile.SMOOTH;private static ClosingMode closingMode=ClosingMode.SIMPLIFIED;
+ public static String catalogSearch="",catalogMod="all";public static CatalogSort catalogSort=CatalogSort.MOD_NAME;public static boolean catalogConfiguredOnly;public static int catalogScroll;
+ private static final Map<String,Policy> policies=new HashMap<String,Policy>();private static final Map<String,ScreenRule> rules=new HashMap<String,ScreenRule>();private static final Map<String,ClosingRule> closingRules=new HashMap<String,ClosingRule>();private MotionUIConfig(){}
+ public static synchronized void load(File f){config=new Configuration(f);config.load();hotbar=config.getBoolean("enabled","hotbar",true,"");hotbarDuration=config.getInt("durationMs","hotbar",100,40,400,"");containers=config.getBoolean("enabled","screens.containers",true,"");containerDuration=config.getInt("durationMs","screens.containers",160,0,400,"");containerOffset=config.getInt("offsetPx","screens.containers",10,0,32,"");closing=config.getBoolean("enabled","screens.closing",true,"");closingDuration=config.getInt("durationMs","screens.closing",120,0,300,"");closingOffset=config.getInt("offsetPx","screens.closing",6,0,24,"");if(config.hasKey("screens.closing","mode"))closingMode=parseMode(config.getString("mode","screens.closing","SIMPLIFIED",""));else{String old=config.getString("control","screens.closing","IMMEDIATE","");closingMode=!closing?ClosingMode.DISABLED:"AFTER_ANIMATION".equals(old)?ClosingMode.FULL:ClosingMode.SIMPLIFIED;}closing=closingMode!=ClosingMode.DISABLED;config.get("screens.closing","mode","SIMPLIFIED").set(closingMode.name());config.get("screens.closing","enabled",true).set(closing);
+  boolean hp=config.hasKey("animations","profile");AnimationProfile requested=parseProfile(config.getString("profile","animations","SMOOTH","")),matching=matchingProfile();profile=!hp?matching:requested==AnimationProfile.CUSTOM||requested!=matching?AnimationProfile.CUSTOM:requested;config.get("animations","profile","SMOOTH").set(profile.name());
+  policies.clear();for(String s:config.getStringList("classPolicies","compatibility",new String[0],"class=policy")){int i=s.lastIndexOf('=');if(i>0)try{policies.put(s.substring(0,i),Policy.valueOf(s.substring(i+1)));}catch(Exception ignored){}}
+  rules.clear();for(String s:config.getStringList("classAnimations","compatibility",new String[0],"class|duration|offset|easing")){String[]p=s.split("\\|",4);if(p.length==4)try{rules.put(p[0],new ScreenRule(clamp(Integer.parseInt(p[1]),0,600),clamp(Integer.parseInt(p[2]),0,48),ScreenEasing.valueOf(p[3])));}catch(Exception ignored){}}
+  closingRules.clear();for(String s:config.getStringList("classClosingAnimations","compatibility",new String[0],"class|mode|duration|offset|easing")){String[]p=s.split("\\|",5);if(p.length==5)try{closingRules.put(p[0],new ClosingRule(ClosingMode.valueOf(p[1]),clamp(Integer.parseInt(p[2]),0,600),clamp(Integer.parseInt(p[3]),0,48),ScreenEasing.valueOf(p[4])));}catch(Exception ignored){}}
+  catalogSearch=config.getString("search","catalog","","");catalogMod=config.getString("mod","catalog","all","");try{catalogSort=CatalogSort.valueOf(config.getString("sort","catalog","MOD_NAME",""));}catch(Exception e){catalogSort=CatalogSort.MOD_NAME;}catalogConfiguredOnly=config.getBoolean("configuredOnly","catalog",false,"");catalogScroll=config.getInt("scroll","catalog",0,0,Integer.MAX_VALUE,"");if(config.hasChanged())config.save();}
+ public static synchronized Policy policy(String n){Policy p=policies.get(n);return p==null?Policy.DEFAULT:p;}public static synchronized AnimationProfile profile(){return profile;}public static synchronized ClosingMode closingMode(){return closingMode;}public static synchronized boolean animationAllowed(Class<?>t){return animationAllowed(t.getName());}public static synchronized boolean animationAllowed(String n){return policy(n)!=Policy.DISABLED;}
+ public static synchronized Policy cycle(String n){Policy p=policy(n),q=p==Policy.DEFAULT?Policy.ENABLED:p==Policy.ENABLED?Policy.DISABLED:Policy.DEFAULT;if(q==Policy.DEFAULT)policies.remove(n);else policies.put(n,q);savePolicies();return q;}
+ public static synchronized void setPolicy(String n,Policy p){if(p==Policy.DEFAULT)policies.remove(n);else policies.put(n,p);savePolicies();}
+ public static synchronized ScreenRule rule(String n){ScreenRule r=rules.get(n);return r==null?new ScreenRule(containerDuration,containerOffset,ScreenEasing.EASE_OUT_CUBIC):r;}public static synchronized ClosingRule closingRule(String n){ClosingRule r=closingRules.get(n);return r==null?new ClosingRule(closingMode,closingDuration,closingOffset,ScreenEasing.EASE_OUT_CUBIC):r;}public static synchronized boolean hasRule(String n){return rules.containsKey(n);}public static synchronized boolean hasClosingRule(String n){return closingRules.containsKey(n);}public static synchronized boolean isConfigured(String n){return policy(n)!=Policy.DEFAULT||rules.containsKey(n)||closingRules.containsKey(n);}
+ public static synchronized void setRule(String n,int d,int o,ScreenEasing e){rules.put(n,new ScreenRule(clamp(d,0,600),clamp(o,0,48),e));saveRules();}public static synchronized void setClosingRule(String n,ClosingMode m,int d,int o,ScreenEasing e){closingRules.put(n,new ClosingRule(m,clamp(d,0,600),clamp(o,0,48),e));saveClosingRules();}public static synchronized void resetOpening(String n){rules.remove(n);policies.remove(n);saveRules();savePolicies();}public static synchronized void resetClosing(String n){closingRules.remove(n);saveClosingRules();}public static synchronized void resetRule(String n){rules.remove(n);policies.remove(n);closingRules.remove(n);saveRules();savePolicies();saveClosingRules();}
+ public static synchronized ClosingMode cycleClosingMode(){return cycleClosingMode(1);}public static synchronized ClosingMode cycleClosingMode(int direction){ClosingMode[]v=ClosingMode.values();closingMode=v[wrap(closingMode.ordinal()+(direction<0?-1:1),v.length)];closing=closingMode!=ClosingMode.DISABLED;profile=matchingProfile();saveProfile();return closingMode;}public static synchronized AnimationProfile cycleProfile(){return cycleProfile(1);}public static synchronized AnimationProfile cycleProfile(int direction){AnimationProfile[]v={AnimationProfile.OFF,AnimationProfile.SUBTLE,AnimationProfile.SMOOTH,AnimationProfile.EXPRESSIVE};int i=Arrays.asList(v).indexOf(profile);if(i<0)i=direction<0?0:v.length-1;AnimationProfile n=v[wrap(i+(direction<0?-1:1),v.length)];setProfile(n);return n;}public static synchronized void setProfile(AnimationProfile p){if(p==null||p==AnimationProfile.CUSTOM)return;profile=p;apply(p);saveProfile();}
+ public static synchronized void saveCatalogState(String q,String m,CatalogSort s,boolean only,int scroll){catalogSearch=q;catalogMod=m;catalogSort=s;catalogConfiguredOnly=only;catalogScroll=Math.max(0,scroll);config.get("catalog","search","").set(q);config.get("catalog","mod","all").set(m);config.get("catalog","sort","MOD_NAME").set(s.name());config.get("catalog","configuredOnly",false).set(only);config.get("catalog","scroll",0).set(catalogScroll);config.save();}
+ private static void savePolicies(){List<String>o=new ArrayList<String>();for(Map.Entry<String,Policy>e:policies.entrySet())o.add(e.getKey()+"="+e.getValue());Collections.sort(o);config.get("compatibility","classPolicies",new String[0]).set(o.toArray(new String[o.size()]));config.save();}private static void saveRules(){List<String>o=new ArrayList<String>();for(Map.Entry<String,ScreenRule>e:rules.entrySet()){ScreenRule r=e.getValue();o.add(e.getKey()+"|"+r.duration+"|"+r.offset+"|"+r.easing);}Collections.sort(o);config.get("compatibility","classAnimations",new String[0]).set(o.toArray(new String[o.size()]));config.save();}private static void saveClosingRules(){List<String>o=new ArrayList<String>();for(Map.Entry<String,ClosingRule>e:closingRules.entrySet()){ClosingRule r=e.getValue();o.add(e.getKey()+"|"+r.mode+"|"+r.duration+"|"+r.offset+"|"+r.easing);}Collections.sort(o);config.get("compatibility","classClosingAnimations",new String[0]).set(o.toArray(new String[o.size()]));config.save();}
+ private static AnimationProfile parseProfile(String v){try{return AnimationProfile.valueOf(v);}catch(Exception e){return AnimationProfile.CUSTOM;}}private static ClosingMode parseMode(String v){try{return ClosingMode.valueOf(v);}catch(Exception e){return ClosingMode.SIMPLIFIED;}}private static AnimationProfile matchingProfile(){for(AnimationProfile p:AnimationProfile.values())if(p!=AnimationProfile.CUSTOM&&matches(p))return p;return AnimationProfile.CUSTOM;}private static boolean matches(AnimationProfile p){return hotbar==p.h&&containers==p.c&&closing==p.x&&hotbarDuration==p.hd&&containerDuration==p.cd&&containerOffset==p.co&&closingDuration==p.xd&&closingOffset==p.xo;}private static void apply(AnimationProfile p){hotbar=p.h;containers=p.c;closing=p.x;if(!closing)closingMode=ClosingMode.DISABLED;else if(closingMode==ClosingMode.DISABLED)closingMode=ClosingMode.SIMPLIFIED;hotbarDuration=p.hd;containerDuration=p.cd;containerOffset=p.co;closingDuration=p.xd;closingOffset=p.xo;}private static void saveProfile(){config.get("animations","profile","SMOOTH").set(profile.name());config.get("hotbar","enabled",true).set(hotbar);config.get("hotbar","durationMs",100).set(hotbarDuration);config.get("screens.containers","enabled",true).set(containers);config.get("screens.containers","durationMs",160).set(containerDuration);config.get("screens.containers","offsetPx",10).set(containerOffset);config.get("screens.closing","enabled",true).set(closing);config.get("screens.closing","durationMs",120).set(closingDuration);config.get("screens.closing","offsetPx",6).set(closingOffset);config.get("screens.closing","mode","SIMPLIFIED").set(closingMode.name());config.save();}private static int wrap(int v,int size){int r=v%size;return r<0?r+size:r;}private static int clamp(int v,int a,int b){return Math.max(a,Math.min(b,v));}
 }

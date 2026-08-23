@@ -23,10 +23,10 @@ public final class GuiCatalog {
     private static final AtomicInteger REVISION=new AtomicInteger();
     private static volatile boolean scanning;
     private GuiCatalog() {}
-    public static Collection<Entry> entries(){return new ArrayList<Entry>(ENTRIES.values());}
+    public static Collection<Entry> entries(){ArrayList<Entry> result=new ArrayList<Entry>();for(Entry entry:ENTRIES.values())if(isUserFacing(entry.className))result.add(entry);return result;}
     public static int revision(){return REVISION.get();}
     public static boolean isScanning(){return scanning;}
-    public static void observe(Class<?> type){String name=type.getName(),mod=owner(name);Entry e=ENTRIES.get(name);if(e==null){Entry added=new Entry(name,mod);e=ENTRIES.putIfAbsent(name,added);if(e==null){e=added;REVISION.incrementAndGet();}}e.observed=true;}
+    public static void observe(Class<?> type){String name=type.getName();if(!isUserFacing(name))return;String mod=owner(name);Entry e=ENTRIES.get(name);if(e==null){Entry added=new Entry(name,mod);e=ENTRIES.putIfAbsent(name,added);if(e==null){e=added;REVISION.incrementAndGet();}}e.observed=true;}
     public static void scanAsync(){if(scanning)return;scanning=true;Thread t=new Thread(new Runnable(){public void run(){try{scan();}finally{scanning=false;REVISION.incrementAndGet();}}},"MotionUI-GUI-Scanner");t.setDaemon(true);t.start();}
     private static void scan(){
         Map<String,String> supers=new HashMap<String,String>();Map<String,String> owners=new HashMap<String,String>();
@@ -38,7 +38,7 @@ public final class GuiCatalog {
         int failures=0;
         for(Map.Entry<String,String> source:sources.entrySet()){File file=new File(source.getKey());try{if(file.isFile())scanJar(file,source.getValue(),supers,owners);else if(file.isDirectory())scanDir(file,file,source.getValue(),supers,owners);}catch(Exception problem){failures++;LOGGER.warn("Could not scan GUI source {}",file,problem);}}
         int before=ENTRIES.size();
-        for(String name:supers.keySet())if(isGui(name,supers,new HashSet<String>()))put(name,new Entry(name,owners.get(name)));
+        for(String name:supers.keySet())if(isUserFacing(name)&&isGui(name,supers,new HashSet<String>()))put(name,new Entry(name,owners.get(name)));
         LOGGER.info("GUI scan complete: {} GUI classes ({} new), {} class sources, {} failed sources",ENTRIES.size(),ENTRIES.size()-before,sources.size(),failures);
     }
     private static void addCodeSource(Map<String,String> sources,Class<?> type,String id){try{java.security.CodeSource code=type.getProtectionDomain().getCodeSource();if(code!=null&&code.getLocation()!=null&&"file".equalsIgnoreCase(code.getLocation().getProtocol()))addSource(sources,new File(code.getLocation().toURI()),id);}catch(Exception ignored){}}
@@ -46,6 +46,7 @@ public final class GuiCatalog {
     private static String sourceOwner(File file){String name=file.getName().toLowerCase(Locale.ROOT);return name.startsWith("optifine_")||name.startsWith("optifine-")?"optifine":"unknown";}
     private static void put(String name,Entry entry){Entry old=ENTRIES.putIfAbsent(name,entry);if(old==null){REVISION.incrementAndGet();return;}if("unknown".equals(old.modId)&&!"unknown".equals(entry.modId)){entry.observed=old.observed;if(ENTRIES.replace(name,old,entry))REVISION.incrementAndGet();}}
     private static boolean isGui(String n,Map<String,String>s,Set<String>seen){if(!seen.add(n))return false;String p=s.get(n);return "net.minecraft.client.gui.GuiScreen".equals(p)||p!=null&&isGui(p,s,seen);}
+    private static boolean isUserFacing(String name){return !"com.demonicrous.motionui.client.ClosingAnimationEvents$SnapshotScreen".equals(name);}
     private static void scanJar(File f,String id,Map<String,String>s,Map<String,String>o)throws IOException{JarFile j=new JarFile(f);try{Enumeration<JarEntry> es=j.entries();while(es.hasMoreElements()){JarEntry e=es.nextElement();if(!e.isDirectory()&&e.getName().endsWith(".class"))read(j.getInputStream(e),id,s,o);}}finally{j.close();}}
     private static void scanDir(File root,File f,String id,Map<String,String>s,Map<String,String>o)throws IOException{File[] fs=f.listFiles();if(fs==null)return;for(File x:fs){if(x.isDirectory())scanDir(root,x,id,s,o);else if(x.getName().endsWith(".class"))read(new FileInputStream(x),id,s,o);}}
     private static void read(InputStream in,String id,Map<String,String>s,Map<String,String>o)throws IOException{try{ClassReader r=new ClassReader(in);String n=map(r.getClassName()),p=r.getSuperName();p=p==null?null:map(p);s.put(n,p);o.put(n,ownerFor(n,id));}finally{in.close();}}
