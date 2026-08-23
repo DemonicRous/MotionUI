@@ -9,6 +9,7 @@ MotionUI is a lightweight client-side mod that makes legacy Minecraft interfaces
 ## Features
 
 - Smooth, FPS-independent GUI opening animations.
+- Safe closing animation that never delays the actual container close.
 - Per-GUI enable, disable, duration, offset and easing settings.
 - F8 catalog that discovers GUI classes from Minecraft, Forge, OptiFine and installed mods before they are opened.
 - Filtering by mod and class-name search.
@@ -43,8 +44,6 @@ Use the mod filter and search box to find a screen. The state button controls wh
 ## Compatibility
 
 MotionUI has been tested with Forge 14.23.5.2847/2864 and OptiFine 1.12.2 HD U G5. Because legacy coremods and custom HUD renderers may transform the same Minecraft classes, new compatibility reports should include `latest.log`, the Forge version and the full mod list.
-
-Known beta issue: some IndustrialCraft 2 interfaces may show dark artifacts around individual Unicode glyphs. This is planned for a future compatibility update.
 
 ## Building
 

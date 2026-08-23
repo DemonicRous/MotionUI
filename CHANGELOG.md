@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0 - Unreleased
+
+- Fixed black rectangles behind some Cyrillic glyphs, most visibly in creative
+  inventory tab titles, by removing stray near-transparent black pixels from
+  the HD Unicode atlas without changing its resolution or glyph metrics.
+- Expanded ASM regression coverage for unknown, ambiguous, repeated and
+  obfuscated transformation inputs, and accepted the obfuscated `GuiIngame`
+  class name independently of transformer order.
+- Added a client-only closing animation that fades a GPU snapshot after the
+  underlying container has already closed; input and screen transitions cancel
+  the visual immediately.
+- Added global Off, Subtle, Smooth and Expressive animation profiles to the F8
+  catalog while preserving per-GUI overrides and existing custom settings.
+- Moved global options to a dedicated settings screen and added Disabled,
+  Simplified and Full closing modes. Simplified renders a non-blocking snapshot;
+  Full blocks movement and camera control until the animation completes.
+
 ## 0.1.0-beta.1 - 2026-08-19
 
 - Added FPS-independent animated hotbar selector while preserving the original draw call.
@@ -11,7 +28,3 @@
 - Reworked hotbar motion: nearby slots use a sub-pixel spring, long jumps crossfade without travelling across the entire bar, and the captured resource-pack selector renders above items.
 - Added advance discovery of Minecraft, Forge, OptiFine and installed-mod GUI classes without opening each screen first.
 - Added an original MotionUI project icon and Forge ModList logo.
-
-### Known issues
-
-- Some IndustrialCraft 2 interfaces may show dark artifacts around individual Unicode glyphs. This is planned for a future compatibility update.

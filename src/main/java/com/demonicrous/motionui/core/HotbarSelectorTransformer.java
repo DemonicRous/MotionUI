@@ -19,13 +19,14 @@ public final class HotbarSelectorTransformer implements IClassTransformer {
     private static final Logger LOGGER = LogManager.getLogger("MotionUI/ASM");
     private static final String PATCH = "animated_hotbar_selector";
     private static final String TARGET = "net.minecraft.client.gui.GuiIngame";
+    private static final String OBF_TARGET = "biq";
     private static final String HELPER =
             "com/demonicrous/motionui/client/HotbarAnimationController";
 
     @Override
     public byte[] transform(String name, String transformedName, byte[] basicClass) {
         if (basicClass == null || !TARGET.equals(transformedName)
-                && !TARGET.equals(name)) {
+                && !TARGET.equals(name) && !OBF_TARGET.equals(name)) {
             return basicClass;
         }
         try {
