@@ -1,56 +1,141 @@
 package com.demonicrous.motionui.client;
 
 import com.demonicrous.motionui.config.MotionUIConfig;
+import com.demonicrous.motionui.animation.PreviewTimeline;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Locale;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.resources.I18n;
 
-/** Compact per-GUI editor with real tabs and fixed header/footer regions. */
-public final class GuiScreenRuleEditor extends GuiScreen {
-    private static final int TAB_TOP = 54, TAB_HEIGHT = 20, CONTENT_TOP = 82;
+/** Per-GUI editor with explicit header, segmented mode, content cards and action footer. */
+public final class GuiScreenRuleEditor extends GuiScreen implements ClosingFlattenedRegion {
     private final MotionUITooltipPanel panel = new MotionUITooltipPanel();
     private final GuiScreen parent;
     private final GuiCatalog.Entry entry;
+    private final boolean modScope;
     private boolean opening = true, closingInherited;
     private int openingDuration, openingOffset, closingDuration, closingOffset;
     private MotionUIConfig.ScreenEasing openingEasing, closingEasing;
+    private MotionUIConfig.AnimationStyle openingStyle, closingStyle;
+    private MotionUIConfig.AnimationDirection openingDirection, closingDirection;
     private MotionUIConfig.ClosingMode closingMode;
+    private MotionUILayout.Rect frame, modeTabs, state, summary, body, footer, parametersCard, motionCard, previewCard, scrubber;
+    private MotionUIStepper durationStepper, offsetStepper;
+    private PreviewTimeline preview;
+    private boolean draggingScrubber;
 
     public GuiScreenRuleEditor(GuiScreen parent, GuiCatalog.Entry entry) {
-        this.parent = parent;
-        this.entry = entry;
-        MotionUIConfig.ScreenRule openingRule = MotionUIConfig.rule(entry.className);
-        openingDuration = openingRule.duration;
-        openingOffset = openingRule.offset;
-        openingEasing = openingRule.easing;
-        MotionUIConfig.ClosingRule closingRule = MotionUIConfig.closingRule(entry.className);
-        closingDuration = closingRule.duration;
-        closingOffset = closingRule.offset;
-        closingEasing = closingRule.easing;
-        closingMode = closingRule.mode;
-        closingInherited = !MotionUIConfig.hasClosingRule(entry.className);
+        this(parent,entry,false);
     }
 
-    private int panelWidth() { return Math.min(420, width - 32); }
-    private int panelLeft() { return (width - panelWidth()) / 2; }
+    public GuiScreenRuleEditor(GuiScreen parent, GuiCatalog.Entry entry, boolean modScope) {
+        this.parent = parent; this.entry = entry; this.modScope=modScope;
+        MotionUIConfig.ScreenRule openingRule = effectiveOpening();
+        openingDuration = openingRule.duration; openingOffset = openingRule.offset;
+        openingEasing = openingRule.easing; openingStyle = openingRule.style; openingDirection = openingRule.direction;
+        MotionUIConfig.ClosingRule closingRule = effectiveClosing();
+        closingDuration = closingRule.duration; closingOffset = closingRule.offset;
+        closingEasing = closingRule.easing; closingStyle = closingRule.style; closingDirection = closingRule.direction;
+        closingMode = closingRule.mode; closingInherited = !hasOwnClosing();
+        preview=new PreviewTimeline(openingDuration,System.nanoTime());
+    }
 
-    @Override
-    public void initGui() { refresh(); }
+    @Override public MotionUILayout.Rect closingFlattenedRegion() { return frame; }
+
+    @Override public void initGui() { refresh(); }
+
+    private void measure() {
+        boolean narrow = width - MotionUILayout.S16 < 536;
+        frame = MotionUILayout.frame(width, height, 860, narrow ? 520 : 410);
+        MotionUILayout.Rect inner = frame.inset(MotionUILayout.S12);
+        modeTabs = new MotionUILayout.Rect(inner.x, frame.y + 48, inner.width, MotionUILayout.TAB);
+        state = new MotionUILayout.Rect(inner.x, modeTabs.bottom() + MotionUILayout.S8, inner.width, 24);
+        summary = new MotionUILayout.Rect(inner.x, state.bottom() + MotionUILayout.S8, inner.width, 20);
+        footer = new MotionUILayout.Rect(inner.x, frame.bottom() - MotionUILayout.S12 - MotionUILayout.FOOTER,
+                inner.width, MotionUILayout.FOOTER);
+        int bodyTop = summary.bottom() + MotionUILayout.S12;
+        body = new MotionUILayout.Rect(inner.x, bodyTop, inner.width,
+                footer.y - MotionUILayout.S16 - bodyTop);
+        previewCard = null; scrubber = null;
+        if (body.width >= 720) {
+            int available=body.width-MotionUILayout.S12*2;
+            int controls=Math.max(210,available*34/100),motion=Math.max(170,available*27/100);
+            parametersCard=new MotionUILayout.Rect(body.x,body.y,controls,body.height);
+            motionCard=new MotionUILayout.Rect(parametersCard.right()+MotionUILayout.S12,body.y,motion,body.height);
+            previewCard=new MotionUILayout.Rect(motionCard.right()+MotionUILayout.S12,body.y,
+                    body.right()-motionCard.right()-MotionUILayout.S12,body.height);
+            scrubber=new MotionUILayout.Rect(previewCard.x+10,previewCard.bottom()-16,previewCard.width-20,6);
+        } else if (body.width >= 600) {
+            int available = body.width - MotionUILayout.S12;
+            int leftWidth = available * 3 / 5;
+            parametersCard = new MotionUILayout.Rect(body.x, body.y, leftWidth, body.height);
+            motionCard = new MotionUILayout.Rect(parametersCard.right() + MotionUILayout.S12, body.y,
+                    available - leftWidth, body.height);
+        } else {
+            int half = Math.max(0, (body.height - MotionUILayout.S8) / 2);
+            parametersCard = new MotionUILayout.Rect(body.x, body.y, body.width, half);
+            motionCard = new MotionUILayout.Rect(body.x, body.y + half + MotionUILayout.S8,
+                    body.width, body.height - half - MotionUILayout.S8);
+        }
+    }
 
     private void refresh() {
-        buttonList.clear();
-        int left = panelLeft(), contentWidth = panelWidth();
-        int firstTabWidth = (contentWidth - 4) / 2;
-        buttonList.add(new MotionUITabButton(70, left, TAB_TOP, firstTabWidth,
+        buttonList.clear(); measure();
+        MotionUILayout.Rect[] tabs = MotionUILayout.tracks(modeTabs, 2, MotionUILayout.S4);
+        buttonList.add(new MotionUITabButton(70, tabs[0].x, tabs[0].y, tabs[0].width,
                 I18n.format("motionui.editor.opening"), opening));
-        buttonList.add(new MotionUITabButton(71, left + firstTabWidth + 4, TAB_TOP,
-                contentWidth - firstTabWidth - 4, I18n.format("motionui.editor.closing"), !opening));
-        if (opening) openingButtons(left, contentWidth); else closingButtons(left, contentWidth);
-        int footerY = footerY();
-        buttonList.add(new MotionUIButton(90, left, footerY, (contentWidth - 8) / 2, 20, I18n.format("motionui.editor.reset")));
-        buttonList.add(new MotionUIButton(99, left + (contentWidth + 8) / 2, footerY, (contentWidth - 8) / 2, 20, I18n.format("gui.done")));
+        buttonList.add(new MotionUITabButton(71, tabs[1].x, tabs[1].y, tabs[1].width,
+                I18n.format("motionui.editor.closing"), !opening));
+        String stateText;
+        if (opening) {
+            stateText = I18n.format("motionui.editor.state",
+                    I18n.format("motionui.policy." + openingPolicy().name().toLowerCase(Locale.ROOT)));
+            buttonList.add(new MotionUIButton(10, state.x, state.y, state.width, state.height, stateText));
+        } else {
+            String value = closingInherited ? I18n.format("motionui.policy.default")
+                    : I18n.format("motionui.closingMode." + closingMode.name().toLowerCase(Locale.ROOT));
+            stateText = I18n.format("motionui.editor.state", value);
+            buttonList.add(new MotionUIButton(20, state.x, state.y, state.width, state.height, stateText));
+        }
+        if (hasDetailedControls()) addDetailedControls();
+        MotionUILayout.Rect[] actions = MotionUILayout.tracks(footer, 6, MotionUILayout.S4);
+        buttonList.add(new MotionUIButton(80, actions[0].x, actions[0].y, actions[0].width, actions[0].height,
+                I18n.format("motionui.editor.copy")));
+        MotionUIButton paste=new MotionUIButton(81,actions[1].x,actions[1].y,actions[1].width,actions[1].height,I18n.format("motionui.editor.paste"));
+        paste.enabled=opening?AnimationRuleClipboard.hasOpening():AnimationRuleClipboard.hasClosing();buttonList.add(paste);
+        buttonList.add(new MotionUIButton(83,actions[2].x,actions[2].y,actions[2].width,actions[2].height,I18n.format(previewCard==null?"motionui.editor.preview":"motionui.editor.replay")));
+        buttonList.add(new MotionUIButton(82,actions[3].x,actions[3].y,actions[3].width,actions[3].height,
+                I18n.format(modScope?"motionui.editor.applyMod":"motionui.editor.applyAllMod")));
+        buttonList.add(new MotionUIButton(90, actions[4].x, actions[4].y, actions[4].width, actions[4].height,
+                I18n.format("motionui.editor.reset")));
+        buttonList.add(new MotionUIButton(99, actions[5].x, actions[5].y, actions[5].width, actions[5].height,
+                I18n.format("gui.done"), MotionUIButton.Variant.PRIMARY));
+    }
+
+    private void addDetailedControls() {
+        int duration = opening ? openingDuration : closingDuration;
+        int offset = opening ? openingOffset : closingOffset;
+        MotionUIConfig.ScreenEasing easing = opening ? openingEasing : closingEasing;
+        int x = parametersCard.x + MotionUILayout.S12;
+        int width = parametersCard.width - MotionUILayout.S16 - MotionUILayout.S8;
+        int rowTop = parametersCard.y + 34;
+        durationStepper = new MotionUIStepper(new MotionUILayout.Rect(x, rowTop, width, MotionUILayout.CONTROL),
+                I18n.format("motionui.editor.duration", duration), 30, 32, "-20", "+20");
+        offsetStepper = new MotionUIStepper(new MotionUILayout.Rect(x, rowTop + 30, width, MotionUILayout.CONTROL),
+                I18n.format("motionui.editor.offset", offset), 33, 35, "-2", "+2");
+        durationStepper.addButtons(buttonList); offsetStepper.addButtons(buttonList);
+        buttonList.add(new MotionUIButton(36, x, rowTop + 60, width, MotionUILayout.CONTROL,
+                I18n.format("motionui.editor.easing",
+                        I18n.format("motionui.easing." + easing.name().toLowerCase(Locale.ROOT)))));
+        MotionUILayout.Rect padBounds = new MotionUILayout.Rect(motionCard.x + MotionUILayout.S12,
+                motionCard.y + 28, motionCard.width - MotionUILayout.S16 - MotionUILayout.S8,
+                Math.max(74, motionCard.height - 54));
+        MotionUIConfig.AnimationStyle style = opening ? openingStyle : closingStyle;
+        MotionUIConfig.AnimationDirection direction = opening ? openingDirection : closingDirection;
+        new MotionUIMotionPad(padBounds, 40, style, direction, !opening).addButtons(buttonList);
     }
 
     private boolean hasDetailedControls() {
@@ -58,49 +143,24 @@ public final class GuiScreenRuleEditor extends GuiScreen {
                 : !closingInherited && closingMode != MotionUIConfig.ClosingMode.DISABLED;
     }
 
-    private int footerY() { return CONTENT_TOP + (hasDetailedControls() ? 122 : 78); }
-
-    private void openingButtons(int left, int contentWidth) {
-        MotionUIConfig.Policy state = openingPolicy();
-        buttonList.add(new MotionUIButton(10, left, CONTENT_TOP, contentWidth, 20,
-                I18n.format("motionui.editor.state", I18n.format("motionui.policy." + state.name().toLowerCase(Locale.ROOT)))));
-        if (state == MotionUIConfig.Policy.ENABLED) numbers(left, contentWidth, openingDuration, openingOffset, openingEasing);
-    }
-
-    private void closingButtons(int left, int contentWidth) {
-        String state = closingInherited ? I18n.format("motionui.policy.default")
-                : I18n.format("motionui.closingMode." + closingMode.name().toLowerCase(Locale.ROOT));
-        buttonList.add(new MotionUIButton(20, left, CONTENT_TOP, contentWidth, 20, I18n.format("motionui.editor.state", state)));
-        if (!closingInherited && closingMode != MotionUIConfig.ClosingMode.DISABLED)
-            numbers(left, contentWidth, closingDuration, closingOffset, closingEasing);
-    }
-
-    private void numbers(int left, int contentWidth, int duration, int offset, MotionUIConfig.ScreenEasing easing) {
-        int row = CONTENT_TOP + 42, small = 46;
-        buttonList.add(new MotionUIButton(30, left, row, small, 20, "-20"));
-        buttonList.add(new MotionUIButton(32, left + contentWidth - small, row, small, 20, "+20"));
-        buttonList.add(new MotionUIButton(33, left, row + 26, small, 20, "-2"));
-        buttonList.add(new MotionUIButton(35, left + contentWidth - small, row + 26, small, 20, "+2"));
-        buttonList.add(new MotionUIButton(36, left, row + 52, contentWidth, 20,
-                I18n.format("motionui.editor.easing", I18n.format("motionui.easing." + easing.name().toLowerCase(Locale.ROOT)))));
-    }
-
-    @Override
-    protected void actionPerformed(GuiButton button) throws IOException {
+    @Override protected void actionPerformed(GuiButton button) throws IOException {
         if (button.id == 10) {
-            MotionUIConfig.Policy state = openingPolicy();
-            if (state == MotionUIConfig.Policy.DEFAULT) MotionUIConfig.setPolicy(entry.className, MotionUIConfig.Policy.ENABLED);
-            else if (state == MotionUIConfig.Policy.ENABLED) MotionUIConfig.setPolicy(entry.className, MotionUIConfig.Policy.DISABLED);
-            else MotionUIConfig.resetOpening(entry.className);
+            MotionUIConfig.Policy value = openingPolicy();
+            if (value == MotionUIConfig.Policy.DEFAULT) setOpeningPolicy(MotionUIConfig.Policy.ENABLED);
+            else if (value == MotionUIConfig.Policy.ENABLED) setOpeningPolicy(MotionUIConfig.Policy.DISABLED);
+            else resetOpening();
         } else if (button.id == 20) {
             if (closingInherited) { closingInherited = false; closingMode = MotionUIConfig.ClosingMode.DISABLED; }
             else if (closingMode == MotionUIConfig.ClosingMode.DISABLED) closingMode = MotionUIConfig.ClosingMode.SIMPLIFIED;
             else if (closingMode == MotionUIConfig.ClosingMode.SIMPLIFIED) closingMode = MotionUIConfig.ClosingMode.FULL;
             else closingInherited = true;
             saveClosing();
-        } else if (button.id == 70 || button.id == 71) {
-            opening = button.id == 70;
-        } else if (button.id >= 30 && button.id <= 36) change(button.id);
+        } else if (button.id == 70 || button.id == 71) opening = button.id == 70;
+        else if (button.id >= 30 && button.id <= 44) change(button.id);
+        else if(button.id==80)copyCurrent();
+        else if(button.id==81)pasteCurrent();
+        else if(button.id==82)applyToMod();
+        else if(button.id==83){if(previewCard==null){mc.displayGuiScreen(new GuiAnimationPreviewScreen(this,effectivePreviewOpening(),effectivePreviewClosing(),!opening));return;}replayPreview();}
         else if (button.id == 90) resetCurrent();
         else if (button.id == 99) { mc.displayGuiScreen(parent); return; }
         refresh();
@@ -113,13 +173,25 @@ public final class GuiScreenRuleEditor extends GuiScreen {
             if (id == 33) openingOffset = Math.max(0, openingOffset - 2);
             if (id == 35) openingOffset = Math.min(48, openingOffset + 2);
             if (id == 36) openingEasing = next(openingEasing);
-            MotionUIConfig.setRule(entry.className, openingDuration, openingOffset, openingEasing);
+            if (id >= 40 && id <= 43) {
+                MotionUIConfig.AnimationDirection selected = MotionUIStyleLogic.directionFor(id, 40);
+                openingStyle = MotionUIStyleLogic.toggleSlide(openingStyle, openingDirection == selected);
+                openingDirection = selected;
+            }
+            if (id == 44) openingStyle = MotionUIStyleLogic.toggleScale(openingStyle);
+            saveOpening();
         } else {
             if (id == 30) closingDuration = Math.max(0, closingDuration - 20);
             if (id == 32) closingDuration = Math.min(600, closingDuration + 20);
             if (id == 33) closingOffset = Math.max(0, closingOffset - 2);
             if (id == 35) closingOffset = Math.min(48, closingOffset + 2);
             if (id == 36) closingEasing = next(closingEasing);
+            if (id >= 40 && id <= 43) {
+                MotionUIConfig.AnimationDirection selected = MotionUIStyleLogic.directionFor(id, 40);
+                closingStyle = MotionUIStyleLogic.toggleSlide(closingStyle, closingDirection == selected);
+                closingDirection = selected;
+            }
+            if (id == 44) closingStyle = MotionUIStyleLogic.toggleScale(closingStyle);
             saveClosing();
         }
     }
@@ -134,31 +206,34 @@ public final class GuiScreenRuleEditor extends GuiScreen {
         return values[(value.ordinal() + values.length - 1) % values.length];
     }
 
-    @Override
-    protected void mouseClicked(int mouseX, int mouseY, int mouseButton) throws IOException {
+    @Override protected void mouseClicked(int mouseX, int mouseY, int mouseButton) throws IOException {
+        if(previewCard!=null&&scrubber.contains(mouseX,mouseY)){draggingScrubber=true;scrubPreview(mouseX);return;}
         if (mouseButton == 1) {
             GuiButton button = buttonAt(mouseX, mouseY);
-            if (button != null && reverse(button.id)) {
-                refresh();
-                return;
-            }
+            if (button != null && reverse(button.id)) { refresh(); return; }
         }
         super.mouseClicked(mouseX, mouseY, mouseButton);
     }
 
-    private GuiButton buttonAt(int mouseX, int mouseY) {
-        for (GuiButton button : buttonList)
-            if (button.visible && button.enabled && mouseX >= button.x && mouseX < button.x + button.width
-                    && mouseY >= button.y && mouseY < button.y + button.height) return button;
+    @Override protected void mouseClickMove(int mouseX,int mouseY,int clickedMouseButton,long timeSinceLastClick){if(draggingScrubber){scrubPreview(mouseX);return;}super.mouseClickMove(mouseX,mouseY,clickedMouseButton,timeSinceLastClick);}
+    @Override protected void mouseReleased(int mouseX,int mouseY,int state){if(draggingScrubber){scrubPreview(mouseX);draggingScrubber=false;return;}super.mouseReleased(mouseX,mouseY,state);}
+    private void scrubPreview(int mouseX){preview.scrub((mouseX-scrubber.x)/(double)Math.max(1,scrubber.width));}
+
+    private GuiButton buttonAt(int x, int y) {
+        for (int i = buttonList.size() - 1; i >= 0; i--) {
+            GuiButton button = buttonList.get(i);
+            if (button.visible && button.enabled && x >= button.x && x < button.x + button.width
+                    && y >= button.y && y < button.y + button.height) return button;
+        }
         return null;
     }
 
     private boolean reverse(int id) {
         if (id == 10) {
-            MotionUIConfig.Policy state = openingPolicy();
-            if (state == MotionUIConfig.Policy.DEFAULT) MotionUIConfig.setPolicy(entry.className, MotionUIConfig.Policy.DISABLED);
-            else if (state == MotionUIConfig.Policy.DISABLED) MotionUIConfig.setPolicy(entry.className, MotionUIConfig.Policy.ENABLED);
-            else MotionUIConfig.resetOpening(entry.className);
+            MotionUIConfig.Policy value = openingPolicy();
+            if (value == MotionUIConfig.Policy.DEFAULT) setOpeningPolicy(MotionUIConfig.Policy.DISABLED);
+            else if (value == MotionUIConfig.Policy.DISABLED) setOpeningPolicy(MotionUIConfig.Policy.ENABLED);
+            else resetOpening();
             return true;
         }
         if (id == 20) {
@@ -166,83 +241,137 @@ public final class GuiScreenRuleEditor extends GuiScreen {
             else if (closingMode == MotionUIConfig.ClosingMode.FULL) closingMode = MotionUIConfig.ClosingMode.SIMPLIFIED;
             else if (closingMode == MotionUIConfig.ClosingMode.SIMPLIFIED) closingMode = MotionUIConfig.ClosingMode.DISABLED;
             else closingInherited = true;
-            saveClosing();
-            return true;
+            saveClosing(); return true;
         }
         if (id == 36) {
-            if (opening) { openingEasing = previous(openingEasing); MotionUIConfig.setRule(entry.className, openingDuration, openingOffset, openingEasing); }
-            else { closingEasing = previous(closingEasing); saveClosing(); }
+            if (opening) {
+                openingEasing = previous(openingEasing);
+                saveOpening();
+            } else { closingEasing = previous(closingEasing); saveClosing(); }
             return true;
         }
+        if (id >= 40 && id <= 44) { change(id); return true; }
         return false;
     }
 
     private void resetCurrent() {
         if (opening) {
-            MotionUIConfig.resetOpening(entry.className);
-            MotionUIConfig.ScreenRule rule = MotionUIConfig.rule(entry.className);
+            resetOpening();
+            MotionUIConfig.ScreenRule rule = effectiveOpening();
             openingDuration = rule.duration; openingOffset = rule.offset; openingEasing = rule.easing;
+            openingStyle = rule.style; openingDirection = rule.direction;
         } else {
-            MotionUIConfig.resetClosing(entry.className);
-            MotionUIConfig.ClosingRule rule = MotionUIConfig.closingRule(entry.className);
-            closingInherited = true; closingMode = rule.mode;
-            closingDuration = rule.duration; closingOffset = rule.offset; closingEasing = rule.easing;
+            resetClosing();
+            MotionUIConfig.ClosingRule rule = effectiveClosing();
+            closingInherited = true; closingMode = rule.mode; closingDuration = rule.duration;
+            closingOffset = rule.offset; closingEasing = rule.easing; closingStyle = rule.style;
+            closingDirection = rule.direction;
         }
     }
 
     private void saveClosing() {
-        if (closingInherited) MotionUIConfig.resetClosing(entry.className);
-        else MotionUIConfig.setClosingRule(entry.className, closingMode, closingDuration, closingOffset, closingEasing);
+        if (closingInherited) resetClosing();
+        else if(modScope)MotionUIConfig.setModClosingRule(entry.modId,closingMode,closingDuration,closingOffset,closingEasing,closingStyle,closingDirection);
+        else MotionUIConfig.setClosingRule(entry.className, closingMode, closingDuration, closingOffset,closingEasing, closingStyle, closingDirection);
+        replayPreview();
     }
 
-    @Override
-    protected void keyTyped(char typedChar, int keyCode) throws IOException {
+    @Override protected void keyTyped(char typedChar, int keyCode) throws IOException {
         if (keyCode == 1) { mc.displayGuiScreen(parent); return; }
         super.keyTyped(typedChar, keyCode);
     }
 
-    @Override
-    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+    @Override public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         drawDefaultBackground();
-        drawCenteredString(fontRenderer, I18n.format("motionui.editor.title"), width / 2, 10, 0xFFFFFF);
-        String identity = entry.modId + " · " + entry.className;
-        drawCenteredString(fontRenderer, fontRenderer.trimStringToWidth(identity, width - 24), width / 2, 30, 0xAAAAAA);
-        int left = panelLeft(), right = left + panelWidth();
-        int footer = footerY();
-        panel.drawPanel(left - 10, TAB_TOP - 10, right + 10, footer + 30);
-        drawRect(left, TAB_TOP + TAB_HEIGHT, right, footer - 6, 0x48100010);
-        String effective = I18n.format("motionui.editor.effective", opening ? openingEffective() : closingEffective());
-        drawSectionLabel(left, right, CONTENT_TOP + 26, effective);
-        if (hasDetailedControls()) drawValueFields(left, opening ? openingDuration : closingDuration,
-                opening ? openingOffset : closingOffset);
-        if (showHint()) drawCenteredString(fontRenderer, I18n.format(hintKey()), width / 2, CONTENT_TOP + 58, 0x8C9AA8);
+        panel.drawPanel(frame.x, frame.y, frame.right(), frame.bottom());
+        drawCenteredString(fontRenderer, I18n.format("motionui.editor.title"), frame.centerX(), frame.y + 8,
+                MotionUITheme.TEXT);
+        String identity = modScope ? I18n.format("motionui.editor.modIdentity",entry.modId) : entry.modId + " · " + entry.className;
+        drawCenteredString(fontRenderer, fontRenderer.trimStringToWidth(identity, frame.width - 32),
+                frame.centerX(), frame.y + 24, MotionUITheme.TEXT_MUTED);
+        MotionUITheme.surface(this, summary, MotionUITheme.SURFACE, MotionUITheme.BORDER_SUBTLE);
+        drawCenteredString(fontRenderer, I18n.format("motionui.editor.effective",
+                opening ? openingEffective() : closingEffective()), summary.centerX(),
+                summary.y + (summary.height - fontRenderer.FONT_HEIGHT) / 2, MotionUITheme.TEXT_MUTED);
+        if (hasDetailedControls()) {
+            drawParametersCard(); drawMotionCard(); if(previewCard!=null)drawPreview();
+        } else {
+            MotionUITheme.card(this, body);
+            drawCenteredString(fontRenderer, I18n.format(hintKey()), body.centerX(),
+                    body.centerY() - fontRenderer.FONT_HEIGHT / 2, MotionUITheme.TEXT_MUTED);
+        }
         super.drawScreen(mouseX, mouseY, partialTicks);
+        GuiButton hovered = buttonAt(mouseX, mouseY);
+        if (hovered != null && hovered.id >= 40 && hovered.id <= 44) {
+            boolean scale = hovered.id == 44;
+            TextTooltip.draw(fontRenderer,
+                    I18n.format(scale ? "motionui.editor.scalePad.title" : "motionui.editor.directionPad.title"),
+                    I18n.format(scale ? "motionui.editor.scalePad.hint" : "motionui.editor.directionPad.hint"),
+                    mouseX, mouseY, width, height);
+        }
     }
 
-    private void drawValueFields(int left, int duration, int offset) {
-        int contentWidth = panelWidth(), small = 46, middle = contentWidth - small * 2 - 8;
-        int fieldLeft = left + small + 4, row = CONTENT_TOP + 42;
-        panel.drawField(fieldLeft, row, fieldLeft + middle, row + 20);
-        panel.drawField(fieldLeft, row + 26, fieldLeft + middle, row + 46);
-        drawCenteredString(fontRenderer, I18n.format("motionui.editor.duration", duration),
-                fieldLeft + middle / 2, row + 6, 0xE8E0F0);
-        drawCenteredString(fontRenderer, I18n.format("motionui.editor.offset", offset),
-                fieldLeft + middle / 2, row + 32, 0xE8E0F0);
+    private void drawParametersCard() {
+        MotionUITheme.card(this, parametersCard);
+        drawString(fontRenderer, "§e" + I18n.format("motionui.editor.parameters"),
+                parametersCard.x + MotionUILayout.S12, parametersCard.y + 10, MotionUITheme.TEXT);
+        durationStepper.draw(fontRenderer); offsetStepper.draw(fontRenderer);
     }
 
-    private void drawSectionLabel(int left, int right, int y, String text) {
-        int halfText = fontRenderer.getStringWidth(text) / 2;
-        int center = (left + right) / 2;
-        int lineY = y + 4;
-        drawRect(left + 12, lineY, Math.max(left + 12, center - halfText - 8), lineY + 1, 0x70500070);
-        drawRect(Math.min(right - 12, center + halfText + 8), lineY, right - 12, lineY + 1, 0x70500070);
-        drawCenteredString(fontRenderer, text, center, y, 0xC8C0D0);
+    private void drawMotionCard() {
+        MotionUITheme.card(this, motionCard);
+        drawCenteredString(fontRenderer, I18n.format("motionui.editor.motionPad"), motionCard.centerX(),
+                motionCard.y + 10, MotionUITheme.TEXT);
+        MotionUIConfig.AnimationStyle style = opening ? openingStyle : closingStyle;
+        drawCenteredString(fontRenderer, I18n.format("motionui.style." + style.name().toLowerCase(Locale.ROOT)),
+                motionCard.centerX(), motionCard.bottom() - 17,
+                style == MotionUIConfig.AnimationStyle.SCALE_SLIDE ? MotionUITheme.ACCENT : MotionUITheme.TEXT_MUTED);
     }
 
-    private boolean showHint() { return opening ? openingPolicy() != MotionUIConfig.Policy.ENABLED : closingInherited || closingMode == MotionUIConfig.ClosingMode.DISABLED; }
-    private String hintKey() { return opening && openingPolicy() == MotionUIConfig.Policy.DISABLED || !opening && !closingInherited ? "motionui.editor.disabledHint" : "motionui.editor.inheritedHint"; }
-    private MotionUIConfig.Policy openingPolicy() { MotionUIConfig.Policy p = MotionUIConfig.policy(entry.className); return p == MotionUIConfig.Policy.DEFAULT && MotionUIConfig.hasRule(entry.className) ? MotionUIConfig.Policy.ENABLED : p; }
-    private String openingEffective() { MotionUIConfig.Policy p = openingPolicy(); if (p == MotionUIConfig.Policy.DISABLED) return I18n.format("motionui.policy.disabled"); MotionUIConfig.ScreenRule r = MotionUIConfig.rule(entry.className); return (p == MotionUIConfig.Policy.DEFAULT ? "↳ " : "") + r.duration + " ms · " + r.offset + " px"; }
-    private String closingEffective() { MotionUIConfig.ClosingRule r = MotionUIConfig.closingRule(entry.className); return (closingInherited ? "↳ " : "") + I18n.format("motionui.closingMode." + r.mode.name().toLowerCase(Locale.ROOT)) + " · " + r.duration + " ms · " + r.offset + " px"; }
+    private String hintKey() {
+        return opening && openingPolicy() == MotionUIConfig.Policy.DISABLED || !opening && !closingInherited
+                ? "motionui.editor.disabledHint" : "motionui.editor.inheritedHint";
+    }
+
+    private MotionUIConfig.Policy openingPolicy() {
+        MotionUIConfig.Policy value = modScope?MotionUIConfig.modPolicy(entry.modId):MotionUIConfig.ownPolicy(entry.className);
+        return value == MotionUIConfig.Policy.DEFAULT && hasOwnOpening()
+                ? MotionUIConfig.Policy.ENABLED : value;
+    }
+
+    private String openingEffective() {
+        MotionUIConfig.Policy value = openingPolicy();
+        if (value == MotionUIConfig.Policy.DISABLED) return I18n.format("motionui.policy.disabled");
+        MotionUIConfig.ScreenRule rule = effectiveOpening();
+        return (value == MotionUIConfig.Policy.DEFAULT ? "↳ " : "")
+                + I18n.format("motionui.style." + rule.style.name().toLowerCase(Locale.ROOT))
+                + " · " + rule.duration + " ms · " + rule.offset + " px";
+    }
+
+    private String closingEffective() {
+        MotionUIConfig.ClosingRule rule = effectiveClosing();
+        return (closingInherited ? "↳ " : "")
+                + I18n.format("motionui.closingMode." + rule.mode.name().toLowerCase(Locale.ROOT)) + " · "
+                + I18n.format("motionui.style." + rule.style.name().toLowerCase(Locale.ROOT))
+                + " · " + rule.duration + " ms · " + rule.offset + " px";
+    }
+
     @Override public boolean doesGuiPauseGame() { return false; }
+
+    private MotionUIConfig.ScreenRule effectiveOpening(){return modScope?MotionUIConfig.modRule(entry.modId):MotionUIConfig.rule(entry.className,entry.modId);}
+    private MotionUIConfig.ClosingRule effectiveClosing(){return modScope?MotionUIConfig.modClosingRule(entry.modId):MotionUIConfig.closingRule(entry.className,entry.modId);}
+    private boolean hasOwnOpening(){return modScope?MotionUIConfig.hasModRule(entry.modId):MotionUIConfig.hasRule(entry.className);}
+    private boolean hasOwnClosing(){return modScope?MotionUIConfig.hasModClosingRule(entry.modId):MotionUIConfig.hasClosingRule(entry.className);}
+    private void setOpeningPolicy(MotionUIConfig.Policy value){if(modScope)MotionUIConfig.setModPolicy(entry.modId,value);else MotionUIConfig.setPolicy(entry.className,value);}
+    private void saveOpening(){if(modScope)MotionUIConfig.setModRule(entry.modId,openingDuration,openingOffset,openingEasing,openingStyle,openingDirection);else MotionUIConfig.setRule(entry.className,openingDuration,openingOffset,openingEasing,openingStyle,openingDirection);replayPreview();}
+    private void resetOpening(){if(modScope)MotionUIConfig.resetModOpening(entry.modId);else MotionUIConfig.resetOpening(entry.className);}
+    private void resetClosing(){if(modScope)MotionUIConfig.resetModClosing(entry.modId);else MotionUIConfig.resetClosing(entry.className);}
+    private void replayPreview(){preview.replay(opening?openingDuration:closingDuration,System.nanoTime());}
+    private void copyCurrent(){if(opening)AnimationRuleClipboard.copyOpening(new MotionUIConfig.ScreenRule(openingDuration,openingOffset,openingEasing,openingStyle,openingDirection),openingPolicy());else AnimationRuleClipboard.copyClosing(new MotionUIConfig.ClosingRule(closingMode,closingDuration,closingOffset,closingEasing,closingStyle,closingDirection));}
+    private void pasteCurrent(){if(opening&&AnimationRuleClipboard.hasOpening()){MotionUIConfig.ScreenRule r=AnimationRuleClipboard.opening();openingDuration=r.duration;openingOffset=r.offset;openingEasing=r.easing;openingStyle=r.style;openingDirection=r.direction;setOpeningPolicy(AnimationRuleClipboard.openingPolicy());saveOpening();}else if(!opening&&AnimationRuleClipboard.hasClosing()){MotionUIConfig.ClosingRule r=AnimationRuleClipboard.closing();closingInherited=false;closingMode=r.mode;closingDuration=r.duration;closingOffset=r.offset;closingEasing=r.easing;closingStyle=r.style;closingDirection=r.direction;saveClosing();}}
+    private Collection<String> modClasses(){Collection<String>names=new ArrayList<String>();for(GuiCatalog.Entry item:GuiCatalog.entries())if(entry.modId.equals(item.modId))names.add(item.className);return names;}
+    private void applyToMod(){if(modScope){if(opening)saveOpening();else saveClosing();return;}Collection<String>names=modClasses();if(opening)MotionUIConfig.applyOpening(names,new MotionUIConfig.ScreenRule(openingDuration,openingOffset,openingEasing,openingStyle,openingDirection),openingPolicy());else MotionUIConfig.applyClosing(names,new MotionUIConfig.ClosingRule(closingMode,closingDuration,closingOffset,closingEasing,closingStyle,closingDirection));}
+    private void drawPreview(){AnimationPreviewRenderer.draw(this,previewCard,effectivePreviewOpening(),effectivePreviewClosing(),!opening,preview.progress(System.nanoTime()));drawCenteredString(fontRenderer,I18n.format("motionui.editor.preview"),previewCard.centerX(),previewCard.y+8,MotionUITheme.TEXT);double p=preview.progress(System.nanoTime());drawRect(scrubber.x,scrubber.y,scrubber.right(),scrubber.bottom(),MotionUITheme.BORDER_SUBTLE);drawRect(scrubber.x,scrubber.y,scrubber.x+(int)(scrubber.width*p),scrubber.bottom(),MotionUITheme.ACCENT);}
+    private MotionUIConfig.ScreenRule effectivePreviewOpening(){return new MotionUIConfig.ScreenRule(openingDuration,openingOffset,openingEasing,openingStyle,openingDirection);}
+    private MotionUIConfig.ClosingRule effectivePreviewClosing(){return new MotionUIConfig.ClosingRule(closingMode,closingDuration,closingOffset,closingEasing,closingStyle,closingDirection);}
 }

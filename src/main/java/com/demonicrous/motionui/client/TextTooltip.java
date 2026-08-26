@@ -24,6 +24,19 @@ final class TextTooltip extends Gui {
         INSTANCE.drawLines(font, lines, mouseX, mouseY, screenWidth, screenHeight);
     }
 
+    static void draw(FontRenderer font, String title, List<String> body, int mouseX, int mouseY,
+            int screenWidth, int screenHeight) {
+        int wrapWidth = Math.max(100, Math.min(300, screenWidth - 32));
+        List<String> lines = new ArrayList<String>();
+        lines.addAll(font.listFormattedStringToWidth(title, wrapWidth));
+        if (!body.isEmpty()) lines.add("");
+        for (String line : body) {
+            if (line.isEmpty()) lines.add("");
+            else lines.addAll(font.listFormattedStringToWidth(line, wrapWidth));
+        }
+        INSTANCE.drawLines(font, lines, mouseX, mouseY, screenWidth, screenHeight);
+    }
+
     private void drawLines(FontRenderer font, List<String> lines, int mouseX, int mouseY,
             int screenWidth, int screenHeight) {
         if (lines.isEmpty()) return;

@@ -55,6 +55,11 @@ public final class PatchDiagnostics {
         return false;
     }
 
+    public static synchronized boolean isApplied(String patch) {
+        Result result = RESULTS.get(patch);
+        return result != null && "APPLIED".equals(result.status);
+    }
+
     private static void update(String patch, String status, String detail) {
         RESULTS.put(patch, new Result(status, detail));
         if (!MotionUIEarlyConfig.isDiagnosticLoggingEnabled()) {

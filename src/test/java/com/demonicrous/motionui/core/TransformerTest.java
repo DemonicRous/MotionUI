@@ -16,13 +16,20 @@ import org.objectweb.asm.tree.*;
 public final class TransformerTest {
     private static final String SCALED = "net.minecraft.client.gui.ScaledResolution";
     private static final String INGAME = "net.minecraft.client.gui.GuiIngame";
+    private static final String GUI_SCREEN = "net.minecraft.client.gui.GuiScreen";
+    private static final String FORGE_HOOKS = "net.minecraftforge.client.ForgeHooksClient";
     private static final String HELPER =
             "com/demonicrous/motionui/client/HotbarAnimationController";
+    private static final String BACKGROUND_HELPER =
+            "com/demonicrous/motionui/client/GuiBackgroundControl";
+    private static final String SCREEN_RENDER_BRIDGE =
+            "com/demonicrous/motionui/client/GuiScreenRenderBridge";
 
     @Before
     public void resetState() {
         PatchDiagnostics.resetForTests();
         MotionUIEarlyConfig.setUnicodeEnabledForTests(true);
+        MotionUIEarlyConfig.setTransparentGuiLayerEnabledForTests(true);
     }
 
     @Test
@@ -103,6 +110,88 @@ public final class TransformerTest {
     }
 
     @Test
+    public void guiBackgroundPatchAddsOneCaptureGuard() throws Exception {
+        byte[] output = new GuiBackgroundTransformer().transform(GUI_SCREEN, GUI_SCREEN,
+                bytes("/net/minecraft/client/gui/GuiScreen.class"));
+        assertEquals(1, countCalls(output, BACKGROUND_HELPER,
+                "shouldSuppressBackground"));
+    }
+
+    @Test
+    public void guiBackgroundPatchSupportsObfuscatedNames() {
+        byte[] output = new GuiBackgroundTransformer().transform(
+                "blk", "blk", backgroundClass("blk", "d_", 1));
+        assertEquals(1, countCalls(output, BACKGROUND_HELPER,
+                "shouldSuppressBackground"));
+    }
+
+    @Test
+    public void guiBackgroundPatchRejectsUnknownAndAmbiguousBytecode() {
+        GuiBackgroundTransformer transformer = new GuiBackgroundTransformer();
+        byte[] missing = backgroundClass(GUI_SCREEN, "unknown", 1);
+        byte[] duplicate = backgroundClass(GUI_SCREEN, "drawWorldBackground", 2);
+        assertSame(missing, transformer.transform(GUI_SCREEN, GUI_SCREEN, missing));
+        assertSame(duplicate, transformer.transform(GUI_SCREEN, GUI_SCREEN, duplicate));
+    }
+
+    @Test
+    public void guiBackgroundPatchIsIdempotent() {
+        GuiBackgroundTransformer transformer = new GuiBackgroundTransformer();
+        byte[] first = transformer.transform(
+                "blk", "blk", backgroundClass("blk", "d_", 1));
+        byte[] second = transformer.transform("blk", "blk", first);
+        assertSame(first, second);
+        assertEquals(1, countCalls(second, BACKGROUND_HELPER,
+                "shouldSuppressBackground"));
+    }
+
+    @Test
+    public void guiRenderPatchWrapsCompleteForgeHookBody() {
+        byte[] output = new GuiScreenRenderTransformer().transform(
+                FORGE_HOOKS, FORGE_HOOKS, forgeHooksClass(1));
+        assertEquals(1, countCalls(output, SCREEN_RENDER_BRIDGE, "beginFrame"));
+        assertEquals(1, countCalls(output, SCREEN_RENDER_BRIDGE, "endFrame"));
+        assertEquals(2, countCalls(output, SCREEN_RENDER_BRIDGE,
+                "adjustMouseCoordinate"));
+        assertEquals(1, countCalls(output,
+                "net/minecraft/client/gui/GuiScreen", "drawScreen"));
+    }
+
+    @Test
+    public void guiRenderPatchSupportsProductionObfuscatedGuiScreen() {
+        byte[] output = new GuiScreenRenderTransformer().transform(
+                FORGE_HOOKS, FORGE_HOOKS, forgeHooksClass("blk", "a", 1));
+        assertEquals(1, countCalls(output, SCREEN_RENDER_BRIDGE, "beginFrame"));
+        assertEquals(1, countCalls(output, SCREEN_RENDER_BRIDGE, "endFrame"));
+        assertEquals(2, countCalls(output, SCREEN_RENDER_BRIDGE,
+                "adjustMouseCoordinate"));
+        assertEquals(1, countCalls(output, "blk", "a"));
+    }
+
+    @Test
+    public void guiRenderPatchRejectsMissingAndAmbiguousCalls() {
+        GuiScreenRenderTransformer transformer = new GuiScreenRenderTransformer();
+        byte[] missing = forgeHooksClass(0);
+        byte[] duplicate = forgeHooksClass(2);
+        assertSame(missing, transformer.transform(FORGE_HOOKS, FORGE_HOOKS, missing));
+        assertSame(duplicate, transformer.transform(
+                FORGE_HOOKS, FORGE_HOOKS, duplicate));
+    }
+
+    @Test
+    public void guiRenderPatchIsIdempotent() {
+        GuiScreenRenderTransformer transformer = new GuiScreenRenderTransformer();
+        byte[] first = transformer.transform(
+                FORGE_HOOKS, FORGE_HOOKS, forgeHooksClass(1));
+        byte[] second = transformer.transform(FORGE_HOOKS, FORGE_HOOKS, first);
+        assertSame(first, second);
+        assertEquals(1, countCalls(second, SCREEN_RENDER_BRIDGE, "beginFrame"));
+        assertEquals(1, countCalls(second, SCREEN_RENDER_BRIDGE, "endFrame"));
+        assertEquals(2, countCalls(second, SCREEN_RENDER_BRIDGE,
+                "adjustMouseCoordinate"));
+    }
+
+    @Test
     public void transformersIgnoreUnrelatedClassesAndNullBytecode() {
         byte[] unrelated = unicodeClass("example.Unrelated",
                 "net/minecraft/client/Minecraft", "isUnicode", 1);
@@ -110,8 +199,15 @@ public final class TransformerTest {
                 "example.Unrelated", "example.Unrelated", unrelated));
         assertSame(unrelated, new HotbarSelectorTransformer().transform(
                 "example.Unrelated", "example.Unrelated", unrelated));
+        assertSame(unrelated, new GuiBackgroundTransformer().transform(
+                "example.Unrelated", "example.Unrelated", unrelated));
+        assertSame(unrelated, new GuiScreenRenderTransformer().transform(
+                "example.Unrelated", "example.Unrelated", unrelated));
         assertNull(new UnicodeGuiScaleTransformer().transform(SCALED, SCALED, null));
         assertNull(new HotbarSelectorTransformer().transform(INGAME, INGAME, null));
+        assertNull(new GuiBackgroundTransformer().transform(GUI_SCREEN, GUI_SCREEN, null));
+        assertNull(new GuiScreenRenderTransformer().transform(
+                FORGE_HOOKS, FORGE_HOOKS, null));
     }
 
     private static byte[] unicodeClass(
@@ -144,6 +240,41 @@ public final class TransformerTest {
             render.instructions.add(new IntInsnNode(Opcodes.BIPUSH, 22));
             render.instructions.add(new MethodInsnNode(
                     Opcodes.INVOKEVIRTUAL, owner, methodName, "(IIIIII)V", false));
+        }
+        render.instructions.add(new InsnNode(Opcodes.RETURN));
+        node.methods.add(render);
+        return write(node);
+    }
+
+    private static byte[] backgroundClass(String className, String methodName, int methods) {
+        ClassNode node = baseClass(className);
+        node.methods.add(constructor());
+        for (int index = 0; index < methods; index++) {
+            MethodNode background = new MethodNode(
+                    Opcodes.ACC_PUBLIC, methodName, "(I)V", null, null);
+            background.instructions.add(new InsnNode(Opcodes.RETURN));
+            node.methods.add(background);
+        }
+        return write(node);
+    }
+
+    private static byte[] forgeHooksClass(int calls) {
+        return forgeHooksClass("net/minecraft/client/gui/GuiScreen", "drawScreen", calls);
+    }
+
+    private static byte[] forgeHooksClass(String screenClass, String drawName, int calls) {
+        ClassNode node = baseClass(FORGE_HOOKS);
+        node.methods.add(constructor());
+        MethodNode render = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "drawScreen", "(L" + screenClass + ";IIF)V", null, null);
+        for (int index = 0; index < calls; index++) {
+            render.instructions.add(new InsnNode(Opcodes.ACONST_NULL));
+            render.instructions.add(new InsnNode(Opcodes.ICONST_0));
+            render.instructions.add(new InsnNode(Opcodes.ICONST_0));
+            render.instructions.add(new InsnNode(Opcodes.FCONST_0));
+            render.instructions.add(new MethodInsnNode(
+                    Opcodes.INVOKEVIRTUAL, screenClass, drawName, "(IIF)V",
+                    false));
         }
         render.instructions.add(new InsnNode(Opcodes.RETURN));
         node.methods.add(render);

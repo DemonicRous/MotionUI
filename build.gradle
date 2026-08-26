@@ -12,7 +12,9 @@ sourceCompatibility = targetCompatibility = JavaVersion.VERSION_1_8
 compileJava.options.encoding = 'UTF-8'
 minecraft { version = "${mc_version}-${forge_version}"; mappings = 'stable_39'; runDir = 'run'; replace '@VERSION@', project.version; replaceIn 'MotionUI.java' }
 runClient { jvmArgs '-Dfml.coreMods.load=com.demonicrous.motionui.core.MotionUILoadingPlugin' }
-dependencies { testCompile 'junit:junit:4.13.2' }
+dependencies {
+    testCompile 'junit:junit:4.13.2'
+}
 processResources {
     inputs.property 'version', project.version
     from(sourceSets.main.resources.srcDirs) { include 'mcmod.info'; expand(mod_version: project.version) }
@@ -27,6 +29,7 @@ def productionJar = file("${buildDir}/libs/${archivesBaseName}-${version}-releas
 task packageProductionJar(dependsOn: reobfJar) {
     group = 'build'
     description = 'Copies the reobfuscated artifact to a filename that runClient cannot overwrite.'
+    inputs.file jar.archivePath
     outputs.file productionJar
     doLast {
         copy {
